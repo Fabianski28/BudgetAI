@@ -6,36 +6,22 @@ import { fileURLToPath } from "url";
 
 dotenv.config();
 
-const app = express();
-app.use(cors());
-app.use(express.json());
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// --- Serve static files ---
+const app = express();
+app.use(cors());
+app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-// --- Message de bienvenue ---
-const welcomeMessage = `
-👋 Bonjour ! Je suis BudgetIA, ton assistant personnel pour gérer ton argent,
-comprendre où part ton budget, optimiser tes dépenses et t’aider à atteindre tes objectifs financiers.
-Je vais te poser une question à la fois pour ne pas te submerger.
-`;
-
-// --- Mock en cas d'erreur ou pas de clé ---
-function mockResponse(message, userData) {
-  return `Réponse mock à "${message}". Données utilisateur : ${JSON.stringify(userData)}`;
-}
-
-// --- Endpoint pour récupérer le message de bienvenue ---
-app.get("/welcome", (req, res) => {
-  res.json({ welcome: welcomeMessage });
-});
-
-// --- Endpoint chat ---
 let busy = false;
 
+// Fonction mock si pas de clé ou problème API
+function mockResponse(message, userData) {
+  return `Réponse mock pour "${message}". Données utilisateur actuelles : ${JSON.stringify(userData)}`;
+}
+
+// Endpoint chat
 app.post("/chat", async (req, res) => {
   const { message, userData } = req.body;
   if (!message) return res.status(400).json({ error: "Message vide" });
@@ -44,6 +30,38 @@ app.post("/chat", async (req, res) => {
   busy = true;
 
   try {
+    const systemPrompt = `
+Tu es BudgeAI, un assistant personnel de gestion financière simple, précis et bienveillant.
+
+OBJECTIF :
+Aider l’utilisateur à comprendre où part son argent, optimiser ses dépenses, mieux gérer son budget et atteindre ses objectifs financiers.
+
+STYLE :
+- Clair et concret
+- Jamais moralisateur
+- Conseils courts et applicables immédiatement
+- Ton empathique mais professionnel
+
+RÔLE :
+1. Collecte les infos financières importantes (revenus, dépenses, dettes, abonnements, objectifs).
+2. Analyse la situation et repère les optimisations possibles.
+3. Propose un plan budgétaire simple et réaliste.
+4. Donne toujours des actions concrètes (3 max).
+5. Encourage l’utilisateur sans pression.
+
+RÈGLES :
+- Pas de jargon technique.
+- Pas de spéculation financière ni d’investissement risqué.
+- Toujours adapter tes réponses aux données utilisateur.
+- Pose **une seule question à la fois**.
+- Ne passe jamais à l’étape suivante tant que l’utilisateur n’a pas répondu.
+- Ne répète pas les étapes déjà collectées.
+
+Données utilisateur : ${JSON.stringify(userData)}
+`;
+
+    let reply;
+
     if (process.env.GROQ_API_KEY) {
       try {
         const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -55,55 +73,34 @@ app.post("/chat", async (req, res) => {
           body: JSON.stringify({
             model: "llama-3.1-8b-instant",
             messages: [
-              {
-                role: "system",
-                content: `
-Tu es BudgeAI, un assistant personnel de gestion financière simple et progressif.
-Tu poses UNE question à la fois et n'avances jamais tant que l'utilisateur n'a pas répondu.
-
-ÉTAPES :
-1) Revenu mensuel
-2) Dépenses fixes
-3) Dépenses variables
-4) Dettes éventuelles
-5) Objectifs financiers
-6) Résumé + recommandations simples
-
-Règles :
-- Une seule question par message
-- Pas de long texte
-- Adapté aux réponses de l'utilisateur
-
-Données utilisateur : ${JSON.stringify(userData)}
-`
-              },
+              { role: "system", content: systemPrompt },
               { role: "user", content: message }
             ],
             temperature: 0.5,
-            max_tokens: 500
+            max_tokens: 400
           })
         });
 
         if (!response.ok) throw new Error(`Erreur HTTP: ${response.status}`);
         const data = await response.json();
-        res.json({ reply: data.choices[0].message.content });
+        reply = data.choices[0].message.content;
 
       } catch (err) {
-        console.error("Erreur Groq, utilisation du mock :", err.message);
-        res.json({ reply: mockResponse(message, userData) });
+        console.error("Erreur API Groq :", err.message);
+        reply = mockResponse(message, userData);
       }
-
     } else {
-      console.log("Pas de clé API trouvée");
-      res.json({ reply: mockResponse(message, userData) });
+      reply = mockResponse(message, userData);
     }
+
+    res.json({ reply });
 
   } finally {
     busy = false;
   }
 });
 
-// --- Route principale pour renvoyer index.html ---
+// Servir index.html
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
