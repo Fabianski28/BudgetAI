@@ -1,237 +1,64 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<title>BudgeAI</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-  :root {
-    --bg-light: #f0f2f5;
-    --bg-dark: #1e1e1e;
-    --text-light: #000;
-    --text-dark: #fff;
-    --user-color: #007bff;
-    --bot-color-light: #e5e5ea;
-    --bot-color-dark: #333;
+<div id="messages"></div>
+<div id="input-container">
+  <input type="text" id="userInput" placeholder="Tape ton message..." />
+  <button id="sendBtn">Envoyer</button>
+</div>
+
+<script>
+  const messagesDiv = document.getElementById("messages");
+  const input = document.getElementById("userInput");
+  const button = document.getElementById("sendBtn");
+
+  let waiting = false;
+  let userData = { step: 0 }; // suit l'étape côté serveur
+
+  function addMessage(text, sender) {
+    const div = document.createElement("div");
+    div.className = `message ${sender}`;
+    div.textContent = text;
+    messagesDiv.appendChild(div);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
   }
 
-  [data-theme="light"] {
-    --bg: var(--bg-light);
-    --text: var(--text-light);
-    --bot-color: var(--bot-color-light);
-  }
+  async function sendMessage() {
+    if(waiting) return;
+    const text = input.value.trim();
+    if(!text) return;
 
-  [data-theme="dark"] {
-    --bg: var(--bg-dark);
-    --text: var(--text-dark);
-    --bot-color: var(--bot-color-dark);
-  }
+    addMessage(text, "user");
+    input.value = "";
 
-  * { box-sizing: border-box; }
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "message bot loading";
+    loadingDiv.textContent = "BudgeAI réfléchit...";
+    messagesDiv.appendChild(loadingDiv);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
-  body {
-    margin: 0;
-    font-family: 'Segoe UI', sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
-    transition: background 0.3s, color 0.3s;
-  }
+    waiting = true;
+    try {
+      const response = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, userData })
+      });
 
-  #chat-container {
-    width: 100%;
-    max-width: 400px;
-    height: 90vh;
-    background: var(--bg);
-    border-radius: 16px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.2);
-  }
+      const data = await response.json();
+      loadingDiv.remove();
+      addMessage(data.reply, "bot");
 
-  #header {
-    padding: 12px 16px;
-    background-color: var(--bot-color);
-    color: var(--text);
-    font-weight: bold;
-    font-size: 18px;
-    text-align: center;
-  }
+      userData = data.userData; // mise à jour du step
 
-  #messages {
-    flex: 1;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    overflow-y: auto;
-  }
-
-  .message {
-    padding: 12px 16px;
-    border-radius: 20px;
-    max-width: 75%;
-    word-wrap: break-word;
-    opacity: 0;
-    transform: translateY(20px);
-    animation: slideIn 0.3s forwards;
-  }
-
-  @keyframes slideIn {
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .user {
-    background-color: var(--user-color);
-    color: #fff;
-    align-self: flex-end;
-    border-bottom-right-radius: 0;
-  }
-
-  .bot {
-    background-color: var(--bot-color);
-    color: var(--text);
-    align-self: flex-start;
-    border-bottom-left-radius: 0;
-  }
-
-  .loading {
-    font-style: italic;
-    color: #555;
-  }
-
-  #input-container {
-    display: flex;
-    border-top: 1px solid #ddd;
-    background: var(--bg);
-  }
-
-  #userInput {
-    flex: 1;
-    border: none;
-    padding: 14px;
-    font-size: 16px;
-    outline: none;
-    background: var(--bg);
-    color: var(--text);
-    transition: background 0.3s, color 0.3s;
-  }
-
-  #sendBtn {
-    border: none;
-    background-color: var(--user-color);
-    color: #fff;
-    padding: 0 20px;
-    cursor: pointer;
-    font-size: 16px;
-    transition: background 0.2s;
-  }
-
-  #sendBtn:hover {
-    background-color: #0056b3;
-  }
-
-  #themeToggle {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    padding: 6px 12px;
-    cursor: pointer;
-    border-radius: 12px;
-    background: var(--user-color);
-    color: #fff;
-    font-size: 14px;
-    border: none;
-  }
-
-</style>
-</head>
-<body data-theme="light">
-  <button id="themeToggle">🌙</button>
-  <div id="chat-container">
-    <div id="header">BudgeAI</div>
-    <div id="messages"></div>
-    <div id="input-container">
-      <input type="text" id="userInput" placeholder="Tape ton message..." />
-      <button id="sendBtn">Envoyer</button>
-    </div>
-  </div>
-
-  <script>
-    const body = document.body;
-    const toggle = document.getElementById("themeToggle");
-    toggle.addEventListener("click", () => {
-      if(body.getAttribute("data-theme") === "light") {
-        body.setAttribute("data-theme", "dark");
-        toggle.textContent = "☀️";
-      } else {
-        body.setAttribute("data-theme", "light");
-        toggle.textContent = "🌙";
-      }
-    });
-
-    const messagesDiv = document.getElementById("messages");
-    const input = document.getElementById("userInput");
-    const button = document.getElementById("sendBtn");
-
-    let waiting = false;
-    let userData = { step: 0, revenue: 0, expenses: 0, debts: 0, goals: "" };
-
-    function addMessage(text, sender) {
-      const div = document.createElement("div");
-      div.className = `message ${sender}`;
-      div.textContent = text;
-      messagesDiv.appendChild(div);
+    } catch(err) {
+      loadingDiv.textContent = "Erreur serveur";
+    } finally {
+      waiting = false;
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
+  }
 
-    async function sendMessage() {
-      if(waiting) return;
-      const text = input.value.trim();
-      if(!text) return;
+  button.addEventListener("click", sendMessage);
+  input.addEventListener("keydown", e => { if(e.key === "Enter") sendMessage(); });
 
-      addMessage(text, "user");
-      input.value = "";
-
-      const loadingDiv = document.createElement("div");
-      loadingDiv.className = "message bot loading";
-      loadingDiv.textContent = "BudgeAI réfléchit...";
-      messagesDiv.appendChild(loadingDiv);
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
-
-      waiting = true;
-
-      try {
-       const response = await fetch("/chat", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ message: text, userData })
-});
-
-
-        const data = await response.json();
-        loadingDiv.remove();
-        addMessage(data.reply, "bot");
-
-        userData.step = (userData.step || 0) + 1;
-
-      } catch(err) {
-        loadingDiv.textContent = "Erreur: impossible de contacter le serveur";
-      } finally {
-        waiting = false;
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
-      }
-    }
-
-    button.addEventListener("click", sendMessage);
-    input.addEventListener("keydown", e => { if(e.key === "Enter") sendMessage(); });
-
-    // Message de bienvenue
-    addMessage("Bonjour ! Je suis BudgeAI, ton assistant budget. Je vais te poser une question à la fois pour t'aider à gérer ton argent.", "bot");
-  </script>
-</body>
-</html>
+  // Message de bienvenue
+  addMessage("Bonjour ! Je suis BudgeAI. Je vais te poser une question à la fois pour t'aider à gérer ton budget.", "bot");
+</script>
