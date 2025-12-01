@@ -4,19 +4,16 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 
+dotenv.config();
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+const app = express(); // ⚠️ app défini avant tout usage
 
-
-
-dotenv.config();
-const app = express();
 app.use(cors());
 app.use(express.json());
-
-let busy = false;
+app.use(express.static(path.join(__dirname, "public"))); // sert index.html et front
 
 // --- MESSAGE DE BIENVENUE ---
 const welcomeMessage = `
@@ -30,12 +27,13 @@ function mockResponse(message, userData) {
   return `Réponse mock à "${message}". Vos données : ${JSON.stringify(userData)}`;
 }
 
-// --- NOUVEL ENDPOINT : message de bienvenue ---
+// --- ENDPOINT DE BIENVENUE ---
 app.get("/welcome", (req, res) => {
   res.json({ welcome: welcomeMessage });
 });
 
 // --- ENDPOINT CHAT ---
+let busy = false;
 app.post("/chat", async (req, res) => {
   const { message, userData } = req.body;
   if (!message) return res.status(400).json({ error: "Message vide" });
@@ -81,10 +79,8 @@ DÉROULEMENT :
 IMPORTANT :
 Tu dois TOUJOURS poser une seule question et attendre la réponse, même si tu as assez d’infos pour analyser.
 Tu ne fais jamais de long texte.
-Tu ne fais pas de plan tant que tu n’as pas toutes les infos.
 
 Données utilisateur : {{USER_DATA}}
-
                 `
               },
               { role: "user", content: message }
@@ -94,9 +90,7 @@ Données utilisateur : {{USER_DATA}}
           })
         });
 
-        if (!response.ok) {
-          throw new Error(`Erreur HTTP: ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`Erreur HTTP: ${response.status}`);
 
         const data = await response.json();
         res.json({ reply: data.choices[0].message.content });
@@ -105,7 +99,6 @@ Données utilisateur : {{USER_DATA}}
         console.error("Erreur Groq, utilisation du mock :", err.message);
         res.json({ reply: mockResponse(message, userData) });
       }
-
     } else {
       console.log("Pas de clé API trouvée");
       res.json({ reply: mockResponse(message, userData) });
@@ -117,7 +110,8 @@ Données utilisateur : {{USER_DATA}}
 });
 
 // --- ROUTE DE TEST ---
-app.get("/", (req, res) => res.send("Serveur BudgetIA OK"));
+app.get("/health", (req, res) => res.send("Serveur BudgetIA OK"));
 
+// --- SERVEUR ---
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Serveur lancé sur le port ${PORT}`));
