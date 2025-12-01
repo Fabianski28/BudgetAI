@@ -59,22 +59,68 @@ app.post("/chat", async (req, res) => {
     session.data[`step${session.step - 1}`] = message;
   }
 
-  // Vérifie si on a des questions restantes
-  if (session.step < questions.length) {
-    const reply = questions[session.step];
-    session.step++;
-    return res.json({ reply });
+  // Prépare le message pour l'IA (Groq ou mock)
+  const systemPrompt = `
+Tu es BudgeAI, un assistant personnel de gestion financière.
+Tu poses UNE question à la fois, courte et claire.
+Ne passe pas à la suivante tant que l'utilisateur n'a pas répondu.
+Données utilisateur : ${JSON.stringify(session.data)}
+`;
+
+  try {
+    if (process.env.GROQ_API_KEY) {
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "llama-3.1-8b-instant",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: message }
+          ],
+          temperature: 0.5,
+          max_tokens: 300
+        })
+      });
+
+      if (!response.ok) throw new Error(`Erreur HTTP: ${response.status}`);
+
+      const data = await response.json();
+      // Réponse IA
+      let reply = data.choices[0].message.content;
+
+      // Si la session n'a pas encore fini les questions, on pose la suivante
+      if (session.step < questions.length) {
+        reply = questions[session.step];
+        session.step++;
+      } else if (session.step === questions.length) {
+        // Dernière étape : on résume
+        reply += `\n\nRésumé : ${JSON.stringify(session.data, null, 2)}`;
+        sessions[userId] = { step: 0, data: {} }; // reset
+      }
+
+      return res.json({ reply });
+
+    } else {
+      // Pas de clé API : utilise mock
+      let reply = mockResponse(message, session);
+      if (session.step < questions.length) {
+        reply = questions[session.step];
+        session.step++;
+      } else if (session.step === questions.length) {
+        reply += `\n\nRésumé : ${JSON.stringify(session.data, null, 2)}`;
+        sessions[userId] = { step: 0, data: {} };
+      }
+      return res.json({ reply });
+    }
+
+  } catch (err) {
+    console.error("Erreur Groq / mock :", err.message);
+    return res.json({ reply: mockResponse(message, session) });
   }
-
-  // Toutes les questions posées : on résume
-  const finalReply = `
-Merci ! Voici un résumé de tes informations :\n
-${JSON.stringify(session.data, null, 2)}
-  `;
-  // Reset session si tu veux recommencer après
-  sessions[userId] = { step: 0, data: {} };
-
-  res.json({ reply: finalReply });
 });
 
 // --- ROUTE FRONT ---
